@@ -21,32 +21,30 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <signal.h>
 #include <iostream>
-#include "FastEchoIndicationA.h"
-#include "FastEchoRequestA.h"
+#include "FastEchoIndication.h"
+#include "FastEchoRequest.h"
 #include "GeneratedTypes.h"
 
-class FastEcho : public FastEchoIndicationAWrapper
+class FastEcho : public FastEchoIndicationWrapper
 {
     public:
         FastEcho(unsigned int indicationId, unsigned int requestId)
-                : FastEchoIndicationAWrapper(indicationId),
+                : FastEchoIndicationWrapper(indicationId),
                   fastEchoRequestProxy(requestId) {
             sem_init(&sem, 1, 0);
         }
 
-        virtual void indication(uint64_t a, uint64_t b, uint64_t c, uint64_t d) {
-            aResp = a;
-            bResp = b;
-            cResp = c;
-            dResp = d;
+        virtual void indication(uint64_t x) {
+            resp = x;
             sem_post(&sem);
         }
 
-        bool doEcho(uint64_t a, uint64_t b, uint64_t c, uint64_t d) {
-            fastEchoRequestProxy.request(a, b, c, d);
+        bool doEcho(uint64_t x) {
+            fastEchoRequestProxy.request(x);
             sem_wait(&sem);
-            if (aResp != a || bResp != b || cResp != c || dResp != d) {
+            if (resp != x) {
                 std::cerr << "ERROR: echo failed" << std::endl;
                 return false;
             } else {
@@ -54,11 +52,38 @@ class FastEcho : public FastEchoIndicationAWrapper
             }
         }
 
+        void clearSemaphore() {
+            sem_post(&sem);
+        }
+
     private:
-        FastEchoRequestAProxy fastEchoRequestProxy;
+        FastEchoRequestProxy fastEchoRequestProxy;
         sem_t sem;
-        uint64_t aResp, bResp, cResp, dResp;
+        uint64_t resp;
 };
+
+FastEcho *fastEcho;
+
+int reset_attempts = 0;
+const int max_reset_attempts = 5;
+
+void handle_signal(int sig) {
+    signal(SIGINT, &handle_signal);
+    if (reset_attempts >= max_reset_attempts) {
+        std::cerr << ">> Max reset attempts reached" << std::endl;
+        std::cerr << ">> Exiting" << std::endl;
+        exit(1);
+    } else if (fastEcho != NULL) {
+        reset_attempts++;
+        std::cerr << ">> Clearing Semaphore" << std::endl;
+        fastEcho->clearSemaphore();
+    } else {
+        std::cerr << ">> fastEcho == NULL" << std::endl;
+        std::cerr << ">> Exiting" << std::endl;
+        exit(1);
+    }
+    return;
+}
 
 int main(int argc, const char **argv)
 {
@@ -71,13 +96,15 @@ int main(int argc, const char **argv)
 	    (double)actualFrequency * 1.0e-6,
 	    status, (status != 0) ? errno : 0);
 
-    FastEcho fastEcho(IfcNames_FastEchoIndicationAH2S, IfcNames_FastEchoRequestAS2H);
+    signal(SIGINT, &handle_signal);
 
-    for (uint64_t i = 0 ; i < 100000 ; i++) {
+    fastEcho = new FastEcho(IfcNames_FastEchoIndicationH2S, IfcNames_FastEchoRequestS2H);
+
+    for (uint64_t i = 0 ; i < 1000000 ; i++) {
         if (i % 1000 == 0) {
             std::cout << "i = " << i << std::endl;
         }
-        fastEcho.doEcho(i, i + 10, i ^ 2510, i >> 32);
+        fastEcho->doEcho(i);
     }
 
     std::cout << "Done" << std::endl;

@@ -1,16 +1,10 @@
 CONNECTALDIR?=../..
 
 S2H_INTERFACES = \
-	FastEchoRequestA:FastEcho.requestA \
-	FastEchoRequestB:FastEcho.requestB \
-	FastEchoRequestC:FastEcho.requestC \
-	FastEchoRequestD:FastEcho.requestD \
+	FastEchoRequest:FastEcho.request \
 
 H2S_INTERFACES = \
-	FastEcho:FastEchoIndicationA \
-	FastEcho:FastEchoIndicationB \
-	FastEcho:FastEchoIndicationC \
-	FastEcho:FastEchoIndicationD \
+	FastEcho:FastEchoIndication \
 
 BSVFILES = FastEcho.bsv
 CPPFILES = testfastecho.cpp
