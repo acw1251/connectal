@@ -31,6 +31,7 @@ import ConnectalBramFifo::*;
 import Pipe :: *;
 import Probe::*;
 import SyncAxisFifo32x8::*;
+import AndyXilinxSyncFIFO::*;
 import AxiStream :: *;
 `include "ConnectalProjectConfig.bsv"
 
@@ -50,7 +51,16 @@ instance ConnectableWithClocks#(Get#(a), Put#(a)) provisos (
     Mul#(TDiv#(awidth, 32), 4, TDiv#(TMul#(TDiv#(awidth, 32), 32), 8))
    );
    module mkConnectionWithClocks#(Clock inClock, Reset inReset, Clock outClock, Reset outReset, Get#(a) in, Put#(a) out)(Empty) provisos (Bits#(a, awidth), Add#(1, a__, awidth));
-`ifndef GET_PUT_WITH_CLOCKS_USE_XILINX_FIFO
+`ifdef GET_PUT_WITH_CLOCKS_USE_XILINX_FIFO
+      SyncAxisFifo8#(awidth) fifo <- mkSyncAxisFifo8(inClock, inReset, outClock, outReset);
+      mkConnection(in, fifo.s_axis, clocked_by inClock, reset_by inReset);
+      mkConnection(fifo.m_axis, out, clocked_by outClock, reset_by outReset);
+`else
+`ifdef GET_PUT_WITH_CLOCKS_USE_ANDY_FIFO
+      AndySyncFIFO#(a) fifo <- mkAndySyncFIFO(inClock, outClock);
+      mkConnection(in, fifo.write, clocked_by inClock, reset_by inReset);
+      mkConnection(fifo.read, out, clocked_by outClock, reset_by outReset);
+`else
       SyncFIFOIfc#(a) synchronizer <- mkSyncFIFO(8, inClock, inReset, outClock);
       //FIFOF#(a) synchronizer <- mkDualClockBramFIFOF(inClock, inReset, outClock, outReset);
       let getProbe <- mkProbe(clocked_by inClock, reset_by inReset);
@@ -66,10 +76,7 @@ instance ConnectableWithClocks#(Get#(a), Put#(a)) provisos (
 	  synchronizer.deq;
 	  out.put(v);
        endrule
-`else
-      SyncAxisFifo8#(awidth) fifo <- mkSyncAxisFifo8(inClock, inReset, outClock, outReset);
-      mkConnection(in, fifo.s_axis, clocked_by inClock, reset_by inReset);
-      mkConnection(fifo.m_axis, out, clocked_by outClock, reset_by outReset);
+`endif
 `endif
    endmodule
 
@@ -91,7 +98,16 @@ instance ConnectableWithClocks#(PipeOut#(a), Put#(a)) provisos (
     Mul#(TDiv#(awidth, 32), 4, TDiv#(TMul#(TDiv#(awidth, 32), 32), 8))
    );
    module mkConnectionWithClocks#(Clock inClock, Reset inReset, Clock outClock, Reset outReset, PipeOut#(a) in, Put#(a) out)(Empty) provisos (Bits#(a, awidth), Add#(1, a__, awidth));
-`ifndef GET_PUT_WITH_CLOCKS_USE_XILINX_FIFO
+`ifdef GET_PUT_WITH_CLOCKS_USE_XILINX_FIFO
+      SyncAxisFifo8#(awidth) fifo <- mkSyncAxisFifo8(inClock, inReset, outClock, outReset);
+      mkConnection(in, fifo.s_axis, clocked_by inClock, reset_by inReset);
+      mkConnection(fifo.m_axis, out, clocked_by outClock, reset_by outReset);
+`else
+`ifdef GET_PUT_WITH_CLOCKS_USE_ANDY_FIFO
+      AndySyncFIFO#(a) fifo <- mkAndySyncFIFO(inClock, outClock);
+      mkConnection(toGet(in), fifo.write, clocked_by inClock, reset_by inReset);
+      mkConnection(fifo.read, out, clocked_by outClock, reset_by outReset);
+`else
       SyncFIFOIfc#(a) synchronizer <- mkSyncFIFO(8, inClock, inReset, outClock);
       //FIFOF#(a) synchronizer <- mkDualClockBramFIFOF(inClock, inReset, outClock, outReset);
       let deqProbe <- mkProbe(clocked_by inClock, reset_by inReset);
@@ -108,10 +124,7 @@ instance ConnectableWithClocks#(PipeOut#(a), Put#(a)) provisos (
 	  synchronizer.deq;
 	  out.put(v);
        endrule
-`else
-      SyncAxisFifo8#(awidth) fifo <- mkSyncAxisFifo8(inClock, inReset, outClock, outReset);
-      mkConnection(in, fifo.s_axis, clocked_by inClock, reset_by inReset);
-      mkConnection(fifo.m_axis, out, clocked_by outClock, reset_by outReset);
+`endif
 `endif
    endmodule
 
@@ -133,7 +146,16 @@ instance ConnectableWithClocks#(Get#(a), PipeIn#(a)) provisos (
     Mul#(TDiv#(awidth, 32), 4, TDiv#(TMul#(TDiv#(awidth, 32), 32), 8))
    );
    module mkConnectionWithClocks#(Clock inClock, Reset inReset, Clock outClock, Reset outReset, Get#(a) in, PipeIn#(a) out)(Empty) provisos (Bits#(a, awidth), Add#(1, a__, awidth));
-`ifndef GET_PUT_WITH_CLOCKS_USE_XILINX_FIFO
+`ifdef GET_PUT_WITH_CLOCKS_USE_XILINX_FIFO
+      SyncAxisFifo8#(awidth) fifo <- mkSyncAxisFifo8(inClock, inReset, outClock, outReset);
+      mkConnection(in, fifo.s_axis, clocked_by inClock, reset_by inReset);
+      mkConnection(fifo.m_axis, out, clocked_by outClock, reset_by outReset);
+`else
+`ifdef GET_PUT_WITH_CLOCKS_USE_ANDY_FIFO
+      AndySyncFIFO#(a) fifo <- mkAndySyncFIFO(inClock, outClock);
+      mkConnection(in, fifo.write, clocked_by inClock, reset_by inReset);
+      mkConnection(fifo.read, toPut(out), clocked_by outClock, reset_by outReset);
+`else
       SyncFIFOIfc#(a) synchronizer <- mkSyncFIFO(8, inClock, inReset, outClock);
       //FIFOF#(a) synchronizer <- mkDualClockBramFIFOF(inClock, inReset, outClock, outReset);
       let getProbe <- mkProbe(clocked_by inClock, reset_by inReset);
@@ -149,10 +171,7 @@ instance ConnectableWithClocks#(Get#(a), PipeIn#(a)) provisos (
 	  putProbe <= v;
 	  out.enq(v);
        endrule
-`else
-      SyncAxisFifo8#(awidth) fifo <- mkSyncAxisFifo8(inClock, inReset, outClock, outReset);
-      mkConnection(in, fifo.s_axis, clocked_by inClock, reset_by inReset);
-      mkConnection(fifo.m_axis, out, clocked_by outClock, reset_by outReset);
+`endif
 `endif
    endmodule
 
