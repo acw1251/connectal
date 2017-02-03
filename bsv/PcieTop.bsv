@@ -58,6 +58,7 @@ import PcieHost          :: *;
 import HostInterface     :: *;
 import `PinTypeInclude::*;
 import Platform          :: *;
+import AddImplicitCondition::*;
 
 `ifndef DataBusWidth
 `define DataBusWidth 64
@@ -92,8 +93,43 @@ module mkPcieTop #(Clock pcie_refclk_p, Clock osc_50_b3b, Reset pcie_perst_n) (P
        clocked_by host.portalClock, reset_by host.portalReset));
    Platform portalTop <- mkPlatform(tile, clocked_by host.portalClock, reset_by host.portalReset);
 
+   Reg#(Bit#(5)) timer <- mkReg(0, clocked_by host.portalClock, reset_by host.portalReset);
+   rule incrementTimer;
+       timer <= timer + 1;
+   endrule
+   Bool forceBackpressure = timer != 0;
+
+   FIFO#(PhysMemRequest#(32, 32)) writeReqFIFO  <- mkFIFO(clocked_by host.portalClock, reset_by host.portalReset);
+   FIFO#(MemData#(32))            writeDataFIFO <- mkFIFO(clocked_by host.portalClock, reset_by host.portalReset);
+   FIFO#(Bit#(MemTagSize))        writeDoneFIFO <- mkFIFO(clocked_by host.portalClock, reset_by host.portalReset);
+   FIFO#(PhysMemRequest#(32, 32)) readReqFIFO   <- mkFIFO(clocked_by host.portalClock, reset_by host.portalReset);
+   FIFO#(MemData#(32))            readDataFIFO  <- mkFIFO(clocked_by host.portalClock, reset_by host.portalReset);
+   PhysMemSlave#(32, 32) slaveFIFO = (interface PhysMemSlave;
+                                            interface PhysMemReadServer read_server;
+                                                interface Put readReq = toPut(readReqFIFO);
+                                                interface Get readData = addImplicitCondition(timer == 0, toGet(readDataFIFO));
+                                            endinterface
+                                            interface PhysMemWriteServer write_server;
+                                                interface Put writeReq = toPut(writeReqFIFO);
+                                                interface Put writeData = toPut(writeDataFIFO);
+                                                interface Get writeDone = addImplicitCondition(timer == 2, toGet(writeDoneFIFO));
+                                            endinterface
+                                        endinterface);
+   PhysMemMaster#(32, 32) masterFIFO = (interface PhysMemMaster;
+                                            interface PhysMemReadClient read_client;
+                                                interface Put readReq = toGet(readReqFIFO);
+                                                interface Get readData = addImplicitCondition(timer == 4, toPut(readDataFIFO));
+                                            endinterface
+                                            interface PhysMemWriteClient write_client;
+                                                interface Get writeReq = addImplicitCondition(timer == 22, toGet(writeReqFIFO));
+                                                interface Get writeData = addImplicitCondition(timer == 6, toGet(writeDataFIFO));
+                                                interface Put writeDone = toPut(writeDoneFIFO);
+                                            endinterface
+                                        endinterface);
+
    if (mainClockPeriod == pcieClockPeriod) begin
-       mkConnection(host.tpciehost.master, portalTop.slave, clocked_by host.portalClock, reset_by host.portalReset);
+       mkConnection(masterFIFO, portalTop.slave);
+       mkConnection(host.tpciehost.master, slaveFIFO /* was: portalTop.slave */, clocked_by host.portalClock, reset_by host.portalReset);
        if (valueOf(NumberOfMasters) > 0) begin
 	  zipWithM_(mkConnection,portalTop.masters, host.tpciehost.slave);
        end
