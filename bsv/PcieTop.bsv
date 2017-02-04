@@ -132,7 +132,8 @@ module mkPcieTop #(Clock pcie_refclk_p, Clock osc_50_b3b, Reset pcie_perst_n) (P
 
    // PhysMemFIFO#(32,32) portalSlaveFIFO <- mkPhysMemFIFO(clocked_by host.portalClock, reset_by host.portalReset);
    PhysMemFIFO#(32,32) portalSlaveFIFO <- mkPhysMemFIFO(clocked_by host.pcieClock, reset_by host.pcieReset);
-   Vector#(NumberOfMasters, PhysMemFIFO#(40,64)) portalMasterFIFOs <- replicateM(mkPhysMemFIFO(clocked_by host.portalClock, reset_by host.portalReset));
+   // Vector#(NumberOfMasters, PhysMemFIFO#(40,64)) portalMasterFIFOs <- replicateM(mkPhysMemFIFO(clocked_by host.portalClock, reset_by host.portalReset));
+   Vector#(NumberOfMasters, PhysMemFIFO#(40,64)) portalMasterFIFOs <- replicateM(mkPhysMemFIFO(clocked_by host.pcieClock, reset_by host.pcieReset));
    function PhysMemMaster#(asz, dsz) getMaster(PhysMemFIFO#(asz, dsz) fifo);
        return fifo.master;
    endfunction
@@ -154,8 +155,10 @@ module mkPcieTop #(Clock pcie_refclk_p, Clock osc_50_b3b, Reset pcie_perst_n) (P
 
        if (valueOf(NumberOfMasters) > 0) begin
 	  // zipWithM_(mkConnection, portalTop.masters, host.tpciehost.slave);
-          zipWithM_(mkConnectionWithClocks2, portalTop.masters, map(getSlave, portalMasterFIFOs));
-          zipWithM_(mkConnectionWithClocks2, map(getMaster, portalMasterFIFOs), host.tpciehost.slave);
+          // zipWithM_(mkConnectionWithClocks2, portalTop.masters, map(getSlave, portalMasterFIFOs));
+          // zipWithM_(mkConnectionWithClocks2, map(getMaster, portalMasterFIFOs), host.tpciehost.slave);
+          zipWithM_(mkConnection, portalTop.masters, map(getSlave, portalMasterFIFOs));
+          zipWithM_(mkConnection, map(getMaster, portalMasterFIFOs), host.tpciehost.slave);
        end
 
    // end
