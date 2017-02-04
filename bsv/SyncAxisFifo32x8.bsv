@@ -66,9 +66,18 @@ module mkSyncAxisFifo8#(Clock sclk, Reset srst, Clock dclk, Reset drst)(SyncAxis
 	     Add#(b__, TDiv#(dwidth, 8), TDiv#(numBits, 8))
       );
    Vector#(numFifos,SyncAxisFifo8#(32)) fifos <- replicateM(mkSyncAxisFifo32x8(sclk, srst, dclk, drst));
+   function Bool get_s_axis_tready(SyncAxisFifo8#(32) fifo);
+       return unpack(fifo.s_axis.tready);
+   endfunction
+   function Bool get_m_axis_tlast(SyncAxisFifo8#(32) fifo);
+       return unpack(fifo.m_axis.tlast);
+   endfunction
+   function Bool get_m_axis_tvalid(SyncAxisFifo8#(32) fifo);
+       return unpack(fifo.m_axis.tvalid);
+   endfunction
    Integer numFifos = valueOf(numFifos);
    interface AxiStreamSlave s_axis;
-       method tready = fifos[0].s_axis.tready;
+       method tready = pack(all(get_s_axis_tready, fifos));
        method Action tdata(Bit#(dwidth) v);
 	  Vector#(numFifos,Bit#(32)) data = unpack(extend(v));
 	  for (Integer i = 0; i < numFifos; i = i + 1)
@@ -102,14 +111,14 @@ module mkSyncAxisFifo8#(Clock sclk, Reset srst, Clock dclk, Reset drst)(SyncAxis
 	 return truncate(keep);
       endmethod
       method Bit#(1)                tlast();
-	 return fifos[0].m_axis.tlast();
+	 return pack(all(get_m_axis_tlast, fifos));
       endmethod
       method Action                 tready(Bit#(1) v);
 	 function Action fifo_tready(SyncAxisFifo8#(32) f); action f.m_axis.tready(v); endaction endfunction
 	 mapM_(fifo_tready, fifos);
       endmethod
       method Bit#(1)                tvalid();
-	 return fifos[0].m_axis.tvalid();
+	 return pack(all(get_m_axis_tvalid, fifos));
       endmethod
    endinterface
 endmodule
