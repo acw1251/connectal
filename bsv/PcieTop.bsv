@@ -58,7 +58,6 @@ import PcieHost          :: *;
 import HostInterface     :: *;
 import `PinTypeInclude::*;
 import Platform          :: *;
-import AddImplicitCondition::*;
 
 `ifndef DataBusWidth
 `define DataBusWidth 64
@@ -71,41 +70,6 @@ import AddImplicitCondition::*;
 `define SYS_CLK_PARAM
 `define SYS_CLK_ARG
 `endif
-
-interface PhysMemFIFO#(numeric type asz, numeric type dsz);
-    interface PhysMemSlave#(asz,dsz) slave;
-    interface PhysMemMaster#(asz,dsz) master;
-endinterface
-
-module mkPhysMemFIFO(PhysMemFIFO#(asz,dsz));
-    FIFO#(PhysMemRequest#(asz, dsz)) writeReqFIFO  <- mkFIFO;
-    FIFO#(MemData#(dsz))             writeDataFIFO <- mkFIFO;
-    FIFO#(Bit#(MemTagSize))          writeDoneFIFO <- mkFIFO;
-    FIFO#(PhysMemRequest#(asz, dsz)) readReqFIFO   <- mkFIFO;
-    FIFO#(MemData#(dsz))             readDataFIFO  <- mkFIFO;
-    interface PhysMemSlave slave;
-        interface PhysMemReadServer read_server;
-            interface Put readReq = toPut(readReqFIFO);
-            interface Get readData = toGet(readDataFIFO);
-        endinterface
-        interface PhysMemWriteServer write_server;
-            interface Put writeReq = toPut(writeReqFIFO);
-            interface Put writeData = toPut(writeDataFIFO);
-            interface Get writeDone = toGet(writeDoneFIFO);
-        endinterface
-    endinterface
-    interface PhysMemMaster master;
-        interface PhysMemReadClient read_client;
-            interface Put readReq = toGet(readReqFIFO);
-            interface Get readData = toPut(readDataFIFO);
-        endinterface
-        interface PhysMemWriteClient write_client;
-            interface Get writeReq = toGet(writeReqFIFO);
-            interface Get writeData = toGet(writeDataFIFO);
-            interface Put writeDone = toPut(writeDoneFIFO);
-        endinterface
-    endinterface
-endmodule
 
 (* synthesize, no_default_clock, no_default_reset *)
 `ifdef XILINX
@@ -125,62 +89,32 @@ module mkPcieTop #(Clock pcie_refclk_p, Clock osc_50_b3b, Reset pcie_perst_n) (P
        host.derivedClock, host.derivedReset,
 `endif
 `endif
-       // clocked_by host.portalClock, reset_by host.portalReset));
-       clocked_by host.pcieClock, reset_by host.pcieReset));
-   // Platform portalTop <- mkPlatform(tile, clocked_by host.portalClock, reset_by host.portalReset);
-   Platform portalTop <- mkPlatform(tile, clocked_by host.pcieClock, reset_by host.pcieReset);
+       clocked_by host.portalClock, reset_by host.portalReset));
+   Platform portalTop <- mkPlatform(tile, clocked_by host.portalClock, reset_by host.portalReset);
 
-   // PhysMemFIFO#(32,32) portalSlaveFIFO <- mkPhysMemFIFO(clocked_by host.portalClock, reset_by host.portalReset);
-   PhysMemFIFO#(32,32) portalSlaveFIFO <- mkPhysMemFIFO(clocked_by host.pcieClock, reset_by host.pcieReset);
-   // Vector#(NumberOfMasters, PhysMemFIFO#(40,64)) portalMasterFIFOs <- replicateM(mkPhysMemFIFO(clocked_by host.portalClock, reset_by host.portalReset));
-   Vector#(NumberOfMasters, PhysMemFIFO#(40,64)) portalMasterFIFOs <- replicateM(mkPhysMemFIFO(clocked_by host.pcieClock, reset_by host.pcieReset));
-   function PhysMemMaster#(asz, dsz) getMaster(PhysMemFIFO#(asz, dsz) fifo);
-       return fifo.master;
-   endfunction
-   function PhysMemSlave#(asz, dsz) getSlave(PhysMemFIFO#(asz, dsz) fifo);
-       return fifo.slave;
-   endfunction
-
-   // if (mainClockPeriod == pcieClockPeriod) begin
-
-
-       // 1)
-       // mkConnection(host.tpciehost.master, portalTop.slave, clocked_by host.pcieClock, reset_by host.pcieReset);
-       // 2)
-       // mkConnectionWithClocks2( host.tpciehost.master, portalSlaveFIFO.slave);
-       // mkConnectionWithClocks2( portalSlaveFIFO.master, portalTop.slave );
-       // 3)
-       mkConnection( host.tpciehost.master, portalSlaveFIFO.slave);
-       mkConnection( portalSlaveFIFO.master, portalTop.slave );
-
+   if (mainClockPeriod == pcieClockPeriod) begin
+       mkConnection(host.tpciehost.master, portalTop.slave, clocked_by host.portalClock, reset_by host.portalReset);
        if (valueOf(NumberOfMasters) > 0) begin
-	  // zipWithM_(mkConnection, portalTop.masters, host.tpciehost.slave);
-          // zipWithM_(mkConnectionWithClocks2, portalTop.masters, map(getSlave, portalMasterFIFOs));
-          // zipWithM_(mkConnectionWithClocks2, map(getMaster, portalMasterFIFOs), host.tpciehost.slave);
-          zipWithM_(mkConnection, portalTop.masters, map(getSlave, portalMasterFIFOs));
-          zipWithM_(mkConnection, map(getMaster, portalMasterFIFOs), host.tpciehost.slave);
+	  zipWithM_(mkConnection,portalTop.masters, host.tpciehost.slave);
        end
-
-   // end
-   // else begin
-   //     let portalCnx <- GetPutWithClocks::mkConnectionWithClocks(host.pcieClock, host.pcieReset,
-   //      							 host.portalClock, host.portalReset,
-   //      							 host.tpciehost.master, portalTop.slave);
-   //     if (valueOf(NumberOfMasters) > 0) begin
-   //        //zipWithM_(GetPutWithClocks::mkConnectionWithClocks2, portalTop.masters, host.tpciehost.slave);
-   //        for (Integer i = 0; i < valueOf(NumberOfMasters); i = i + 1)
-   //           let memCnx <- GetPutWithClocks::mkConnectionWithClocks(host.portalClock, host.portalReset,
-   //      							    host.pcieClock, host.pcieReset,
-   //      							    portalTop.masters[i], host.tpciehost.slave[i]);
-   //     end
-   // end
+   end
+   else begin
+       let portalCnx <- GetPutWithClocks::mkConnectionWithClocks(host.pcieClock, host.pcieReset,
+								 host.portalClock, host.portalReset,
+								 host.tpciehost.master, portalTop.slave);
+       if (valueOf(NumberOfMasters) > 0) begin
+	  //zipWithM_(GetPutWithClocks::mkConnectionWithClocks2, portalTop.masters, host.tpciehost.slave);
+	  for (Integer i = 0; i < valueOf(NumberOfMasters); i = i + 1)
+	     let memCnx <- GetPutWithClocks::mkConnectionWithClocks(host.portalClock, host.portalReset,
+								    host.pcieClock, host.pcieReset,
+								    portalTop.masters[i], host.tpciehost.slave[i]);
+       end
+   end
 
    // going from level to edge-triggered interrupt
-   // FIFO#(Bit#(4)) intrFifo <- mkFIFO(clocked_by host.portalClock, reset_by host.portalReset);
-   FIFO#(Bit#(4)) intrFifo <- mkFIFO(clocked_by host.pcieClock, reset_by host.pcieReset);
+   FIFO#(Bit#(4)) intrFifo <- mkFIFO(clocked_by host.portalClock, reset_by host.portalReset);
    //(8, host.portalClock, host.portalReset, host.pcieClock);
-   // Vector#(16, Reg#(Bool)) interruptRequested <- replicateM(mkReg(False, clocked_by host.portalClock, reset_by host.portalReset));
-   Vector#(16, Reg#(Bool)) interruptRequested <- replicateM(mkReg(False, clocked_by host.pcieClock, reset_by host.pcieReset));
+   Vector#(16, Reg#(Bool)) interruptRequested <- replicateM(mkReg(False, clocked_by host.portalClock, reset_by host.portalReset));
    rule interrupt_rule;
      Maybe#(Bit#(4)) intr = tagged Invalid;
      for (Integer i = 0; i < 16; i = i + 1) begin
@@ -199,8 +133,7 @@ module mkPcieTop #(Clock pcie_refclk_p, Clock osc_50_b3b, Reset pcie_perst_n) (P
       endmethod
       endinterface);
 
-   // GetPutWithClocks::mkConnectionWithClocks(host.portalClock, host.portalReset,
-   GetPutWithClocks::mkConnectionWithClocks(host.pcieClock, host.pcieReset,
+   GetPutWithClocks::mkConnectionWithClocks(host.portalClock, host.portalReset,
 					    host.pcieClock, host.pcieReset,
 					    toGet(intrFifo),
 					    intrPut);
