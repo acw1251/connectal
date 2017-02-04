@@ -141,9 +141,9 @@ module mkPcieTop #(Clock pcie_refclk_p, Clock osc_50_b3b, Reset pcie_perst_n) (P
 
    // if (mainClockPeriod == pcieClockPeriod) begin
 
-       // mkConnection(host.tpciehost.master, portalTop.slave, clocked_by host.pcieClock, reset_by host.pcieReset);
-       mkConnectionWithClocks2( host.tpciehost.master, portalSlaveFIFO.slave);
-       mkConnectionWithClocks2( portalSlaveFIFO.master, portalTop.slave );
+       mkConnection(host.tpciehost.master, portalTop.slave, clocked_by host.pcieClock, reset_by host.pcieReset);
+       // mkConnectionWithClocks2( host.tpciehost.master, portalSlaveFIFO.slave);
+       // mkConnectionWithClocks2( portalSlaveFIFO.master, portalTop.slave );
 
        if (valueOf(NumberOfMasters) > 0) begin
 	  // zipWithM_(mkConnection, portalTop.masters, host.tpciehost.slave);
