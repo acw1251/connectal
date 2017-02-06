@@ -231,7 +231,7 @@ module mkPcieTop #(Clock pcie_refclk_p, Clock osc_50_b3b, Reset pcie_perst_n) (P
    else begin
        let portalCnx <- GetPutWithClocks::mkConnectionWithClocks(host.pcieClock, host.pcieReset,
 								 host.portalClock, host.portalReset,
-								 host.tpciehost.master, portalTop.slave);
+								 pciehostWrapper, portalTop.slave);
        if (valueOf(NumberOfMasters) > 0) begin
 	  //zipWithM_(GetPutWithClocks::mkConnectionWithClocks2, portalTop.masters, host.tpciehost.slave);
 	  for (Integer i = 0; i < valueOf(NumberOfMasters); i = i + 1)
