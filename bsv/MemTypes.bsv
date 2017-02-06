@@ -652,3 +652,82 @@ module mkOneAtATimePhysMemMaster#(PhysMemMaster#(asz,dsz) master)(PhysMemMaster#
         endinterface
     endinterface
 endmodule
+module mkOneReadOneWritePhysMemSlave#(PhysMemSlave#(asz,dsz) slave)(PhysMemSlave#(asz,dsz));
+    Reg#(Bool) readPending <- mkReg(False);
+    Reg#(Bool) writePending <- mkReg(False);
+    interface PhysMemReadServer read_server;
+        interface Put readReq;
+            method Action put(PhysMemRequest#(asz, dsz) x) if (!readPending);
+                readPending <= True;
+                slave.read_server.readReq.put(x);
+            endmethod
+        endinterface
+        interface Get readData;
+            method ActionValue#(MemData#(dsz)) get if (readPending);
+                readPending <= False;
+                let x <- slave.read_server.readData.get();
+                return x;
+            endmethod
+        endinterface
+    endinterface
+    interface PhysMemWriteServer write_server;
+        interface Put writeReq;
+            method Action put(PhysMemRequest#(asz, dsz) x) if (!writePending);
+                writePending <= True;
+                slave.write_server.writeReq.put(x);
+            endmethod
+        endinterface
+        interface Put writeData;
+            method Action put(MemData#(dsz) x) if (writePending);
+                slave.write_server.writeData.put(x);
+            endmethod
+        endinterface
+        interface Get writeDone;
+            method ActionValue#(Bit#(MemTagSize)) get if (writePending);
+                writePending <= False;
+                let x <- slave.write_server.writeDone.get();
+                return x;
+            endmethod
+        endinterface
+    endinterface
+endmodule
+module mkOneReadOneWritePhysMemMaster#(PhysMemMaster#(asz,dsz) master)(PhysMemMaster#(asz,dsz));
+    Reg#(Bool) readPending <- mkReg(False);
+    Reg#(Bool) writePending <- mkReg(False);
+    interface PhysMemReadClient read_client;
+        interface Get readReq;
+            method ActionValue#(PhysMemRequest#(asz, dsz)) get if (!readPending);
+                readPending <= True;
+                let x <- master.read_client.readReq.get();
+                return x;
+            endmethod
+        endinterface
+        interface Put readData;
+            method Action put(MemData#(dsz) x) if (readPending);
+                readPending <= False;
+                master.read_client.readData.put(x);
+            endmethod
+        endinterface
+    endinterface
+    interface PhysMemWriteClient write_client;
+        interface Get writeReq;
+            method ActionValue#(PhysMemRequest#(asz, dsz)) get if (!writePending);
+                writePending <= True;
+                let x <- master.write_client.writeReq.get();
+                return x;
+            endmethod
+        endinterface
+        interface Get writeData;
+            method ActionValue#(MemData#(dsz)) get if (writePending);
+                let x <- master.write_client.writeData.get();
+                return x;
+            endmethod
+        endinterface
+        interface Put writeDone;
+            method Action put(Bit#(MemTagSize) x) if (writePending);
+                writePending <= False;
+                master.write_client.writeDone.put(x);
+            endmethod
+        endinterface
+    endinterface
+endmodule
