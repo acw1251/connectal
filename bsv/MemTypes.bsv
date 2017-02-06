@@ -731,3 +731,52 @@ module mkOneReadOneWritePhysMemMaster#(PhysMemMaster#(asz,dsz) master)(PhysMemMa
         endinterface
     endinterface
 endmodule
+module mkOneWritePhysMemSlave#(PhysMemSlave#(asz,dsz) slave)(PhysMemSlave#(asz,dsz));
+    Reg#(Bool) writePending <- mkReg(False);
+    interface PhysMemReadServer read_server = slave.read_server;
+    interface PhysMemWriteServer write_server;
+        interface Put writeReq;
+            method Action put(PhysMemRequest#(asz, dsz) x) if (!writePending);
+                writePending <= True;
+                slave.write_server.writeReq.put(x);
+            endmethod
+        endinterface
+        interface Put writeData;
+            method Action put(MemData#(dsz) x) if (writePending);
+                slave.write_server.writeData.put(x);
+            endmethod
+        endinterface
+        interface Get writeDone;
+            method ActionValue#(Bit#(MemTagSize)) get if (writePending);
+                writePending <= False;
+                let x <- slave.write_server.writeDone.get();
+                return x;
+            endmethod
+        endinterface
+    endinterface
+endmodule
+module mkOneWritePhysMemMaster#(PhysMemMaster#(asz,dsz) master)(PhysMemMaster#(asz,dsz));
+    Reg#(Bool) writePending <- mkReg(False);
+    interface PhysMemReadClient read_client = master.read_client;
+    interface PhysMemWriteClient write_client;
+        interface Get writeReq;
+            method ActionValue#(PhysMemRequest#(asz, dsz)) get if (!writePending);
+                writePending <= True;
+                let x <- master.write_client.writeReq.get();
+                return x;
+            endmethod
+        endinterface
+        interface Get writeData;
+            method ActionValue#(MemData#(dsz)) get if (writePending);
+                let x <- master.write_client.writeData.get();
+                return x;
+            endmethod
+        endinterface
+        interface Put writeDone;
+            method Action put(Bit#(MemTagSize) x) if (writePending);
+                writePending <= False;
+                master.write_client.writeDone.put(x);
+            endmethod
+        endinterface
+    endinterface
+endmodule
