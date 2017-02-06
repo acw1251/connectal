@@ -96,13 +96,94 @@ module mkPhysMemFIFO(PhysMemFIFO#(asz,dsz));
     endinterface
     interface PhysMemMaster master;
         interface PhysMemReadClient read_client;
-            interface Put readReq = toGet(readReqFIFO);
-            interface Get readData = toPut(readDataFIFO);
+            interface Get readReq = toGet(readReqFIFO);
+            interface Put readData = toPut(readDataFIFO);
         endinterface
         interface PhysMemWriteClient write_client;
             interface Get writeReq = toGet(writeReqFIFO);
             interface Get writeData = toGet(writeDataFIFO);
             interface Put writeDone = toPut(writeDoneFIFO);
+        endinterface
+    endinterface
+endmodule
+
+typedef enum {Read, Write} PhysMemReqType deriving (Bits, Eq, FShow);
+
+module mkOneAtATimePhysMemSlave#(PhysMemSlave#(asz,dsz) slave)(PhysMemSlave#(asz,dsz));
+    Reg#(Maybe#(PhysMemReqType)) reqPending <- mkReg(tagged Invalid);
+    interface PhysMemReadServer read_server;
+        interface Put readReq;
+            method Action put(PhysMemRequest#(asz, dsz) x) if (!isValid(reqPending));
+                reqPending <= tagged Valid Read;
+                slave.read_server.readReq.put(x);
+            endmethod
+        endinterface
+        interface Get readData;
+            method ActionValue#(MemData#(dsz)) get if (reqPending == tagged Valid Read);
+                reqPending <= tagged Invalid;
+                let x <- slave.read_server.readData.get();
+                return x;
+            endmethod
+        endinterface
+    endinterface
+    interface PhysMemWriteServer write_server;
+        interface Put writeReq;
+            method Action put(PhysMemRequest#(asz, dsz) x) if (!isValid(reqPending));
+                reqPending <= tagged Valid Write;
+                slave.write_server.writeReq.put(x);
+            endmethod
+        endinterface
+        interface Put writeData;
+            method Action put(MemData#(dsz) x) if (reqPending == tagged Valid Write);
+                slave.write_server.writeData.put(x);
+            endmethod
+        endinterface
+        interface Get writeDone;
+            method ActionValue#(Bit#(MemTagSize)) get if (reqPending == tagged Valid Write);
+                reqPending <= tagged Invalid;
+                let x <- slave.write_server.writeDone.get();
+                return x;
+            endmethod
+        endinterface
+    endinterface
+endmodule
+
+module mkOneAtATimePhysMemMaster#(PhysMemMaster#(asz,dsz) master)(PhysMemMaster#(asz,dsz));
+    Reg#(Maybe#(PhysMemReqType)) reqPending <- mkReg(tagged Invalid);
+    interface PhysMemReadClient read_client;
+        interface Get readReq;
+            method ActionValue#(PhysMemRequest#(asz, dsz)) get if (!isValid(reqPending));
+                reqPending <= tagged Valid Read;
+                let x <- master.read_client.readReq.get();
+                return x;
+            endmethod
+        endinterface
+        interface Put readData;
+            method Action put(MemData#(dsz) x) if (reqPending == tagged Valid Read);
+                reqPending <= tagged Invalid;
+                master.read_client.readData.put(x);
+            endmethod
+        endinterface
+    endinterface
+    interface PhysMemWriteClient write_client;
+        interface Get writeReq;
+            method ActionValue#(PhysMemRequest#(asz, dsz)) get if (!isValid(reqPending));
+                reqPending <= tagged Valid Write;
+                let x <- master.write_client.writeReq.get();
+                return x;
+            endmethod
+        endinterface
+        interface Get writeData;
+            method ActionValue#(MemData#(dsz)) get if (reqPending == tagged Valid Write);
+                let x <- master.write_client.writeData.get();
+                return x;
+            endmethod
+        endinterface
+        interface Put writeDone;
+            method Action put(Bit#(MemTagSize) x) if (reqPending == tagged Valid Write);
+                reqPending <= tagged Invalid;
+                master.write_client.writeDone.put(x);
+            endmethod
         endinterface
     endinterface
 endmodule
@@ -137,8 +218,10 @@ module mkPcieTop #(Clock pcie_refclk_p, Clock osc_50_b3b, Reset pcie_perst_n) (P
        return fifo.slave;
    endfunction
 
+   let pciehostWrapper <- mkOneAtATimePhysMemMaster(host.tpciehost.master, clocked_by host.pcieClock, reset_by host.pcieReset);
+
    if (mainClockPeriod == pcieClockPeriod) begin
-       mkConnection(host.tpciehost.master, portalSlaveFIFO.slave, clocked_by host.portalClock, reset_by host.portalReset);
+       mkConnection(pciehostWrapper, portalSlaveFIFO.slave, clocked_by host.portalClock, reset_by host.portalReset);
        mkConnection(portalSlaveFIFO.master, portalTop.slave, clocked_by host.portalClock, reset_by host.portalReset);
        if (valueOf(NumberOfMasters) > 0) begin
 	  zipWithM_(mkConnection, portalTop.masters, map(getSlave, portalMasterFIFOs));
@@ -180,10 +263,14 @@ module mkPcieTop #(Clock pcie_refclk_p, Clock osc_50_b3b, Reset pcie_perst_n) (P
       endmethod
       endinterface);
 
-   GetPutWithClocks::mkConnectionWithClocks(host.portalClock, host.portalReset,
-					    host.pcieClock, host.pcieReset,
-					    toGet(intrFifo),
-					    intrPut);
+   if (mainClockPeriod == pcieClockPeriod) begin
+       mkConnection(toGet(intrFifo), intrPut);
+   end else begin
+       GetPutWithClocks::mkConnectionWithClocks(host.portalClock, host.portalReset,
+                                                host.pcieClock, host.pcieReset,
+                                                toGet(intrFifo),
+                                                intrPut);
+   end
 
    interface pcie = host.tep7.pcie;
    interface pins = portalTop.pins;
