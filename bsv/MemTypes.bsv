@@ -571,3 +571,84 @@ typeclass MkPhysMemSlave#(type srctype, numeric type addrWidth, numeric type dat
    module mkPhysMemSlave#(srctype axiSlave)(PhysMemSlave#(addrWidth,dataWidth));
 endtypeclass
 
+// These modules are used to turn a PhysMemSlave or PhysMemClient into an
+// interface that only deals with one request at a time.
+// These were added as a workaround for github issue #133.
+typedef enum {Read, Write} PhysMemReqType deriving (Bits, Eq, FShow);
+module mkOneAtATimePhysMemSlave#(PhysMemSlave#(asz,dsz) slave)(PhysMemSlave#(asz,dsz));
+    Reg#(Maybe#(PhysMemReqType)) reqPending <- mkReg(tagged Invalid);
+    interface PhysMemReadServer read_server;
+        interface Put readReq;
+            method Action put(PhysMemRequest#(asz, dsz) x) if (!isValid(reqPending));
+                reqPending <= tagged Valid Read;
+                slave.read_server.readReq.put(x);
+            endmethod
+        endinterface
+        interface Get readData;
+            method ActionValue#(MemData#(dsz)) get if (reqPending == tagged Valid Read);
+                reqPending <= tagged Invalid;
+                let x <- slave.read_server.readData.get();
+                return x;
+            endmethod
+        endinterface
+    endinterface
+    interface PhysMemWriteServer write_server;
+        interface Put writeReq;
+            method Action put(PhysMemRequest#(asz, dsz) x) if (!isValid(reqPending));
+                reqPending <= tagged Valid Write;
+                slave.write_server.writeReq.put(x);
+            endmethod
+        endinterface
+        interface Put writeData;
+            method Action put(MemData#(dsz) x) if (reqPending == tagged Valid Write);
+                slave.write_server.writeData.put(x);
+            endmethod
+        endinterface
+        interface Get writeDone;
+            method ActionValue#(Bit#(MemTagSize)) get if (reqPending == tagged Valid Write);
+                reqPending <= tagged Invalid;
+                let x <- slave.write_server.writeDone.get();
+                return x;
+            endmethod
+        endinterface
+    endinterface
+endmodule
+module mkOneAtATimePhysMemMaster#(PhysMemMaster#(asz,dsz) master)(PhysMemMaster#(asz,dsz));
+    Reg#(Maybe#(PhysMemReqType)) reqPending <- mkReg(tagged Invalid);
+    interface PhysMemReadClient read_client;
+        interface Get readReq;
+            method ActionValue#(PhysMemRequest#(asz, dsz)) get if (!isValid(reqPending));
+                reqPending <= tagged Valid Read;
+                let x <- master.read_client.readReq.get();
+                return x;
+            endmethod
+        endinterface
+        interface Put readData;
+            method Action put(MemData#(dsz) x) if (reqPending == tagged Valid Read);
+                reqPending <= tagged Invalid;
+                master.read_client.readData.put(x);
+            endmethod
+        endinterface
+    endinterface
+    interface PhysMemWriteClient write_client;
+        interface Get writeReq;
+            method ActionValue#(PhysMemRequest#(asz, dsz)) get if (!isValid(reqPending));
+                reqPending <= tagged Valid Write;
+                let x <- master.write_client.writeReq.get();
+                return x;
+            endmethod
+        endinterface
+        interface Get writeData;
+            method ActionValue#(MemData#(dsz)) get if (reqPending == tagged Valid Write);
+                let x <- master.write_client.writeData.get();
+                return x;
+            endmethod
+        endinterface
+        interface Put writeDone;
+            method Action put(Bit#(MemTagSize) x) if (reqPending == tagged Valid Write);
+                reqPending <= tagged Invalid;
+                master.write_client.writeDone.put(x);
+            endmethod
+        endinterface
+    endinterface
+endmodule

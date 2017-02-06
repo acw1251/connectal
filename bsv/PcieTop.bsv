@@ -99,9 +99,12 @@ module mkPcieTop #(Clock pcie_refclk_p, Clock osc_50_b3b, Reset pcie_perst_n) (P
        end
    end
    else begin
+       // This forces pciehost to only send one request at a time to portalTop.
+       // This is a workaround for github issue #133
+       let pciehostMasterWrapper <- mkOneAtATimePhysMemMaster(host.tpciehost.master, clocked_by host.pcieClock, reset_by host.pcieReset);
        let portalCnx <- GetPutWithClocks::mkConnectionWithClocks(host.pcieClock, host.pcieReset,
 								 host.portalClock, host.portalReset,
-								 host.tpciehost.master, portalTop.slave);
+								 pciehostMasterWrapper, portalTop.slave);
        if (valueOf(NumberOfMasters) > 0) begin
 	  //zipWithM_(GetPutWithClocks::mkConnectionWithClocks2, portalTop.masters, host.tpciehost.slave);
 	  for (Integer i = 0; i < valueOf(NumberOfMasters); i = i + 1)
